@@ -21,7 +21,7 @@ import warnings
 import logging
 warnings.filterwarnings('ignore')
 
-
+  
 def removing_long_nan_pause(data, step, dept_label, interp_method='linear', nan_long_label=5):
     """
     -------------------------------------------------
@@ -233,8 +233,6 @@ class GISInterpDLPredict:
         self.title = title
         self.model_info = model_info
         self.model_name = model_name
-        logging.basicConfig(filename='example.log', encoding='utf-8',
-                            format='%(asctime)s - %(message)s', level=logging.INFO)
         if model_info[model_name][6]=='weights':
             with open(model_info[model_name][7]) as json_data:
                 json_str = json.load(json_data)
@@ -242,7 +240,6 @@ class GISInterpDLPredict:
             model.load_weights(model_info[model_name][0])
         else:
             model = keras.models.load_model(model_info[model_name][0])
-        logging.info(f'Model successfully loaded!')
         self.__fitted_model = model
         self.new_model = None
         self.refitted_model = model
@@ -269,69 +266,61 @@ class GISInterpDLPredict:
         -------------------------------------------------
         return: none
         """
-        try:
-            self.dict_for_date = { i: raw_data[raw_data.WELL==i].DATE.apply(str).values[0].split()[0] for i in raw_data.WELL.unique()}
-            self.raw_data = raw_data.drop(columns=['DATE'])
-            self.raw_data_info = raw_data_info
-            self.target_exist = True if raw_data_info['target_name'] in raw_data.columns.tolist() else False
-            colums = self.raw_data.columns.tolist()
-            if not all(item in colums for item in self.model_info[self.model_name][1]):
-                return None
-            self.raw_data.replace(self.raw_data_info.get('NULL'), np.nan, inplace=True)
-            logging.info(f'Data cleaned!')
-            cols = self.model_info[self.model_name][1] + [self.raw_data_info['well_label'],
-                    self.raw_data_info['dept_label'], self.raw_data_info['target_name']]
-            
-            df_train = self.raw_data[self.raw_data[self.raw_data_info['well_label']].isin(self.model_info[self.model_name][4])].copy()
-            df_train = df_train.dropna(subset = [self.raw_data_info['target_name']], axis=0)
+        self.raw_data = raw_data.drop(columns=['DATE'])
+        self.raw_data_info = raw_data_info
+        self.target_exist = True if raw_data_info['target_name'] in raw_data.columns.tolist() else False
+        colums = self.raw_data.columns.tolist()
+        if not all(item in colums for item in self.model_info[self.model_name][1]):
+            return None
+        self.raw_data.replace(self.raw_data_info.get('NULL'), np.nan, inplace=True)
+        cols = self.model_info[self.model_name][1] + [self.raw_data_info['well_label'],
+                self.raw_data_info['dept_label'], self.raw_data_info['target_name']]
+        
+        df_train = self.raw_data[self.raw_data[self.raw_data_info['well_label']].isin(self.model_info[self.model_name][4])].copy()
+        df_train = df_train.dropna(subset = [self.raw_data_info['target_name']], axis=0)
+        df_list=[]
+        for well in  df_train[self.raw_data_info['well_label']].unique().tolist():
+            data_local = df_train[df_train[self.raw_data_info.get('well_label')]==well]
+            if data_local.isna().values.any():
+                data_local = removing_long_nan_pause(data_local, self.raw_data_info.get('step'), dept_label=self.raw_data_info['dept_label'])
+            df_list.append(data_local)
+        df_train = pd.concat(objs=df_list)
+        
+        if self.target_exist:
+            data_corr_col = self.raw_data[cols]
+            data_corr_col = self.raw_data.dropna(subset =[ self.raw_data_info['target_name']], axis=0)
             df_list=[]
-            for well in  df_train[self.raw_data_info['well_label']].unique().tolist():
-                data_local = df_train[df_train[self.raw_data_info.get('well_label')]==well]
+            for well in  data_corr_col[self.raw_data_info['well_label']].unique().tolist():
+                data_local = data_corr_col[data_corr_col[self.raw_data_info.get('well_label')]==well]
                 if data_local.isna().values.any():
                     data_local = removing_long_nan_pause(data_local, self.raw_data_info.get('step'), dept_label=self.raw_data_info['dept_label'])
                 df_list.append(data_local)
-            df_train = pd.concat(objs=df_list)
+            data = pd.concat(objs=df_list)
             
-            if self.target_exist:
-                data_corr_col = self.raw_data[cols]
-                data_corr_col = self.raw_data.dropna(subset =[ self.raw_data_info['target_name']], axis=0)
-                df_list=[]
-                for well in  data_corr_col[self.raw_data_info['well_label']].unique().tolist():
-                    data_local = data_corr_col[data_corr_col[self.raw_data_info.get('well_label')]==well]
-                    if data_local.isna().values.any():
-                        data_local = removing_long_nan_pause(data_local, self.raw_data_info.get('step'), dept_label=self.raw_data_info['dept_label'])
-                    df_list.append(data_local)
-                data = pd.concat(objs=df_list)
-                
-                test_wells=[]
-                for well in data[raw_data_info['well_label']].unique().tolist():
-                    if well not in self.model_info[self.model_name][4]:
-                        test_wells.append(well)
-                df_test = data.loc[data[raw_data_info['well_label']].isin(test_wells)]
+            test_wells=[]
+            for well in data[raw_data_info['well_label']].unique().tolist():
+                if well not in self.model_info[self.model_name][4]:
+                    test_wells.append(well)
+            df_test = data.loc[data[raw_data_info['well_label']].isin(test_wells)]
 
-                if len(df_test)==0:
-                    df_test = None
-            else:
-                data_corr_col = self.raw_data[cols[:-1]]
-                df_list=[]
-                for well in self.raw_data[self.raw_data_info['well_label']].unique().tolist():
-                    data_local = data_corr_col[data_corr_col[self.raw_data_info.get('well_label')]==well]
-                    data_local = data_local.dropna()
-                    df_list.append(data_local)
-                data = pd.concat(objs=df_list)
-                df_test = data
-            self.df_train = df_train 
-            self.df_test = df_test
-            logging.info('Train and test datas created!')
-            logging.info('Data is loaded')
-            self.load_data_status = 'Data is loaded'
-            if df_test is None:
-                self.data = df_train.copy()
-            else:
-                self.data = pd.concat(objs=[df_train, df_test])
-        except Exception as ex:
-            print(ex)
-            logging.warning(f'Error in load function: {ex}')
+            if len(df_test)==0:
+                df_test = None
+        else:
+            data_corr_col = self.raw_data[cols[:-1]]
+            df_list=[]
+            for well in self.raw_data[self.raw_data_info['well_label']].unique().tolist():
+                data_local = data_corr_col[data_corr_col[self.raw_data_info.get('well_label')]==well]
+                data_local = data_local.dropna()
+                df_list.append(data_local)
+            data = pd.concat(objs=df_list)
+            df_test = data
+        self.df_train = df_train 
+        self.df_test = df_test
+        self.load_data_status = 'Data is loaded'
+        if df_test is None:
+            self.data = df_train.copy()
+        else:
+            self.data = pd.concat(objs=[df_train, df_test])
 
     
     def __gen_pic__(self, scaler, train_data, valid_data, cut_rows, facies_method, new_data=False):
@@ -351,38 +340,34 @@ class GISInterpDLPredict:
         -------------------------------------------------
         methods: split_data()
         """
-        try:
-            if not new_data:
-                train_data[self.model_info[self.model_name][1]] = scaler.transform(train_data[self.model_info[self.model_name][1]])
-                valid_data[self.model_info[self.model_name][1]] = scaler.transform(valid_data[self.model_info[self.model_name][1]])
-            else:
-                scaler_new =MinMaxScaler(feature_range=(-1,1))
-                train_data[self.model_info[self.model_name][1]] = scaler_new.fit_transform(train_data[self.model_info[self.model_name][1]])
-                valid_data[self.model_info[self.model_name][1]] = scaler_new.transform(valid_data[self.model_info[self.model_name][1]])
+        if not new_data:
+            train_data[self.model_info[self.model_name][1]] = scaler.transform(train_data[self.model_info[self.model_name][1]])
+            valid_data[self.model_info[self.model_name][1]] = scaler.transform(valid_data[self.model_info[self.model_name][1]])
+        else:
+            scaler_new =MinMaxScaler(feature_range=(-1,1))
+            train_data[self.model_info[self.model_name][1]] = scaler_new.fit_transform(train_data[self.model_info[self.model_name][1]])
+            valid_data[self.model_info[self.model_name][1]] = scaler_new.transform(valid_data[self.model_info[self.model_name][1]])
+            
+        X_list_train = []
+        y_list_train = []       
+        for well in  train_data[self.raw_data_info['well_label']].unique().tolist():
+            df = train_data[train_data[self.raw_data_info.get('well_label')]==well]
+            X, y = split_to_pic_wout_scaling(df, facies_method, cut_rows)
+            X_list_train.append(X)
+            y_list_train.append(y)
                 
-            X_list_train = []
-            y_list_train = []       
-            for well in  train_data[self.raw_data_info['well_label']].unique().tolist():
-                df = train_data[train_data[self.raw_data_info.get('well_label')]==well]
-                X, y = split_to_pic_wout_scaling(df, facies_method, cut_rows)
-                X_list_train.append(X)
-                y_list_train.append(y)
-                    
-            X_list_valid = []
-            y_list_valid = []
-            for well in  valid_data[self.raw_data_info['well_label']].unique().tolist():
-                df = valid_data[valid_data[self.raw_data_info.get('well_label')]==well]
-                X, y = split_to_pic_wout_scaling(df, facies_method,cut_rows)
-                X_list_valid.append(X)
-                y_list_valid.append(y)
-                
-            X_train, y_train = reshape_for_cnn(X_list_train, y_list_train, facies_method)
-            X_valid, y_valid = reshape_for_cnn(X_list_valid, y_list_valid, facies_method)    
-            logging.info('Train and valid pictures generated!')
-            return X_train, y_train, X_valid, y_valid
-        except Exception as ex:
-            print(ex)
-            logging.warning(f'Error in gen_pic function {ex}')
+        X_list_valid = []
+        y_list_valid = []
+        for well in  valid_data[self.raw_data_info['well_label']].unique().tolist():
+            df = valid_data[valid_data[self.raw_data_info.get('well_label')]==well]
+            X, y = split_to_pic_wout_scaling(df, facies_method,cut_rows)
+            X_list_valid.append(X)
+            y_list_valid.append(y)
+            
+        X_train, y_train = reshape_for_cnn(X_list_train, y_list_train, facies_method)
+        X_valid, y_valid = reshape_for_cnn(X_list_valid, y_list_valid, facies_method)    
+            
+        return X_train, y_train, X_valid, y_valid
 
 
     def __split_data__(self, valid_mode='valid_new', split_by_well=False, valid_wells=None, train_wells=None, test_portion=0.2, random_state=42):
@@ -400,90 +385,80 @@ class GISInterpDLPredict:
         -------------------------------------------------
         return: True or None
         """
-        try:
-            if self.load_data_status != 'Data is loaded':
-                logging.warning('Data is not loaded !!!!!!')
-                return None
-            if not self.target_exist:
-                if self.verbose:
-                    print('Cannot do a split with no target value')
-                logging.warning('Cannot do a split with no target value')
-                return None
-            else:
-                if valid_mode is None:
-                    if valid_wells is None:
-                        logging.warning('Valid mode and valid wells are NONE')
-                        return None
-                    if train_wells is None:               
-                        train_data = self.df_train.copy()
-                    else:
-                        train_data = self.data.loc[self.data[self.raw_data_info['well_label']].isin(train_wells)]
-                    valid_data = self.data.loc[self.data[self.raw_data_info['well_label']].isin(valid_wells)]
+        if self.load_data_status != 'Data is loaded':
+            return None
+        if not self.target_exist:
+            if self.verbose:
+                print('Cannot do a split with no target value')
+            return None
+        else:
+            if valid_mode is None:
+                if valid_wells is None:
+                    return None
+                if train_wells is None:               
+                    train_data = self.df_train.copy()
                 else:
-                    if self.df_test is None:
-                        logging.warning('No new wells')
-                        if self.verbose:
-                            print('No new wells')
+                    train_data = self.data.loc[self.data[self.raw_data_info['well_label']].isin(train_wells)]
+                valid_data = self.data.loc[self.data[self.raw_data_info['well_label']].isin(valid_wells)]
+            else:
+                if self.df_test is None:
+                    if self.verbose:
+                        print('No new wells')
+                    if not split_by_well:
+                        train_data, valid_data = train_test_split(self.df_train, test_size=test_portion, shuffle=True, 
+                                                                      random_state=random_state)                          
+                    else:
+                        wells_list = self.df_train[self.raw_data_info['well_label']].unique().tolist()
+                        if random_state is not None:
+                            np.random.seed(random_state)
+                        valid_w = np.random.choice(wells_list, int(len(wells_list) * test_portion),replace=False)
+                        train_w = list(set(wells_list) - set(valid_w))
+                        train_data = self.df_train.loc[self.df_train[self.raw_data_info.get('well_label')].isin(train_w)]
+                        valid_data =  self.df_train.loc[self.df_train[self.raw_data_info.get('well_label')].isin(valid_w)]
+                else:
+                    data_to_split = pd.concat(objs=[self.df_train, self.df_test])
+                    if valid_mode == 'valid_new':
+                        train_data = data_to_split
+                        valid_data = self.df_test
+                    elif valid_mode == 'valid_random':
+                        train_data = data_to_split
                         if not split_by_well:
-                            train_data, valid_data = train_test_split(self.df_train, test_size=test_portion, shuffle=True, 
-                                                                        random_state=random_state)                          
+                            valid_data = train_data.sample(frac = test_portion)
                         else:
-                            wells_list = self.df_train[self.raw_data_info['well_label']].unique().tolist()
+                            wells_list = train_data[self.raw_data_info['well_label']].unique().tolist()
                             if random_state is not None:
                                 np.random.seed(random_state)
                             valid_w = np.random.choice(wells_list, int(len(wells_list) * test_portion),replace=False)
-                            train_w = list(set(wells_list) - set(valid_w))
-                            train_data = self.df_train.loc[self.df_train[self.raw_data_info.get('well_label')].isin(train_w)]
-                            valid_data =  self.df_train.loc[self.df_train[self.raw_data_info.get('well_label')].isin(valid_w)]
+                            valid_data =  train_data.loc[train_data[self.raw_data_info.get('well_label')].isin(valid_w)] 
                     else:
-                        data_to_split = pd.concat(objs=[self.df_train, self.df_test])
-                        if valid_mode == 'valid_new':
-                            train_data = data_to_split
-                            valid_data = self.df_test
-                        elif valid_mode == 'valid_random':
-                            train_data = data_to_split
-                            if not split_by_well:
-                                valid_data = train_data.sample(frac = test_portion)
-                            else:
-                                wells_list = train_data[self.raw_data_info['well_label']].unique().tolist()
-                                if random_state is not None:
-                                    np.random.seed(random_state)
-                                valid_w = np.random.choice(wells_list, int(len(wells_list) * test_portion),replace=False)
-                                valid_data =  train_data.loc[train_data[self.raw_data_info.get('well_label')].isin(valid_w)] 
-                        else:
-                            train_data = self.df_train.copy()
-                            valid_data = self.df_test.copy() 
-                                                        
-            if self.df_test is None:    
-                X_train, y_train, X_valid, y_valid = self.__gen_pic__(self.model_info[self.model_name][3], train_data, valid_data, 
-                                                                    self.model_info[self.model_name][2], 
-                                                                    self.model_info[self.model_name][5], new_data=False)
-            else:
-                X_train, y_train, X_valid, y_valid = self.__gen_pic__(self.model_info[self.model_name][3], train_data, valid_data, 
-                                                                    self.model_info[self.model_name][2], 
-                                                                    self.model_info[self.model_name][5], new_data=True)
-                
-            self.X_train, self.X_valid = X_train, X_valid
-            self.y_train, self.y_valid = y_train, y_valid
-            self.split_data_status = 'Data is splitted'
-            logging.info('Data is splitted !!!')
-            self.valid_mode = valid_mode
-            self.train_data, self.valid_data = train_data, valid_data
+                        train_data = self.df_train.copy()
+                        valid_data = self.df_test.copy() 
+                                                       
+        if self.df_test is None:    
+            X_train, y_train, X_valid, y_valid = self.__gen_pic__(self.model_info[self.model_name][3], train_data, valid_data, 
+                                                                self.model_info[self.model_name][2], 
+                                                                self.model_info[self.model_name][5], new_data=False)
+        else:
+            X_train, y_train, X_valid, y_valid = self.__gen_pic__(self.model_info[self.model_name][3], train_data, valid_data, 
+                                                                self.model_info[self.model_name][2], 
+                                                                self.model_info[self.model_name][5], new_data=True)
             
-            if self.verbose:
-                print(f'X_train shape is {self.X_train.shape}')
-                print(f'X_valid shape is {self.X_valid.shape}')
-                print(f'y_train shape is {self.y_train.shape}')
-                print(f'y_valid shape is {self.y_valid.shape}')
-                print(f'df shape is {len(self.df_train)}')
-                print(f'number of wells is {len(self.df_train.WELL.unique().tolist())}')
-                print(self.split_data_status)
-            
-            return True
-        except Exception as ex:
-            print(ex)
-            logging.warning(f'Error in split function {ex}')
-            return None
+        self.X_train, self.X_valid = X_train, X_valid
+        self.y_train, self.y_valid = y_train, y_valid
+        self.split_data_status = 'Data is splitted'
+        self.valid_mode = valid_mode
+        self.train_data, self.valid_data = train_data, valid_data
+        
+        if self.verbose:
+            print(f'X_train shape is {self.X_train.shape}')
+            print(f'X_valid shape is {self.X_valid.shape}')
+            print(f'y_train shape is {self.y_train.shape}')
+            print(f'y_valid shape is {self.y_valid.shape}')
+            print(f'df shape is {len(self.df_train)}')
+            print(f'number of wells is {len(self.df_train.WELL.unique().tolist())}')
+            print(self.split_data_status)
+        
+        return True
     
     
     def __fit_evalute__(self, model, X, y):
@@ -499,21 +474,17 @@ class GISInterpDLPredict:
         -------------------------------------------------
         methods: fit()
         """
-        try:
-            evaluate = model.evaluate(X, y, verbose=0)
-            y_pred_ = model.predict(X)
-            y_pred = [np.argmax(v) for v in y_pred_]
-            y_true = [np.argmax(v) for v in y]
-            f1_macro_valid = f1_score(y_true, y_pred, average='macro')
-            logging.info("Metrics generated !!!")
-            return evaluate, f1_macro_valid
-        except Exception as ex:
-            logging.warning(f"Erro in fit_evalute function !!!")
-            return (0, 0), 0
+        evaluate = model.evaluate(X, y, verbose=0)
+        y_pred_ = model.predict(X)
+        y_pred = [np.argmax(v) for v in y_pred_]
+        y_true = [np.argmax(v) for v in y]
+        f1_macro_valid = f1_score(y_true, y_pred, average='macro')
+        
+        return evaluate, f1_macro_valid
 
 
     def fit(self, refit_exist_model=True, new_model_name=None, new_model_info=dict(), 
-            callback=None, batch_size=256, epochs=150, plot_met=True, valid_mode='valid_new', 
+            callback=None, batch_size=256, epochs=150, plot_met=True,valid_mode='valid_new', 
             split_by_well=False, valid_wells=None, train_wells=None, 
             test_portion=0.2, random_state=42):
         """
@@ -536,78 +507,66 @@ class GISInterpDLPredict:
         -------------------------------------------------
         return: словарь метрик
         """
-        try:
-            split_data = self.__split_data__(valid_mode, split_by_well, valid_wells, train_wells, test_portion, random_state)
-            if split_data is None:
-                return None
-            if refit_exist_model:
-                model = self.refitted_model
-                if self.model_info[self.model_name][6] != 'full':
-                    model.compile(loss='categorical_crossentropy', optimizer='adam',metrics=['accuracy'])
-                
-                if self.valid_mode is None:
-                    logging.info('only predict')
-                    if self.verbose:
-                        print('only predict')
-                elif self.df_test is None:
-                    logging.info('Loaded data contains only wells that used in training model')
-                    if self.verbose:
-                        print('Loaded data contains only wells that used in training model')
-                else:
-                    hist = model.fit(self.X_train, self.y_train, batch_size=batch_size, epochs=epochs, 
-                                    validation_data=(self.X_valid, self.y_valid), callbacks=callback)
-                    if plot_met:
-                        plot_metrics(hist)
-                logging.info("Old model was refitted")
-                self.fit_status = "Old model was refitted"
-                self.refitted_model = model
-            else:
-                if new_model_info[new_model_name][6] == 'full':
-                    model = keras.models.load_model(new_model_info[new_model_name][0])
-                    hist = model.fit(self.X_train, self.y_train, batch_size=batch_size, epochs=epochs, 
-                            validation_data=(self.X_valid, self.y_valid), callbacks=callback)
-                    if plot_met:
-                        plot_metrics(hist)
-                else:
-                    with open(new_model_info[new_model_name][7]) as json_data:
-                        json_str = json.load(json_data)
-                    model = model_from_json(json_str)
-                    model.load_weights(new_model_info[new_model_name][0])
-                    model.compile(loss='categorical_crossentropy', optimizer='adam',metrics=['accuracy'])
-                    hist = model.fit(self.X_train, self.y_train, batch_size=batch_size, epochs=epochs, 
-                                validation_data=(self.X_valid, self.y_valid), callbacks=callback)
-                    if plot_met:
-                        plot_metrics(hist)
-                self.new_model = model
-                self.new_model_info = new_model_info[new_model_name]
-                logging.info("Generated new model")
-                self.fit_status = "Generated new model"
-            
-            X = np.vstack((self.X_train, self.X_valid))
-            y = np.vstack((self.y_train, self.y_valid))
-                
-            eval_valid, f1_macro_valid = self.__fit_evalute__(model, self.X_valid, self.y_valid)
-            eval_train, f1_macro_train = self.__fit_evalute__(model, self.X_train, self.y_train)
-            eval_all, f1_macro_all = self.__fit_evalute__(model, X, y)
-            
-            metrics_dict=dict()
-            metrics_dict['valid_loss'], metrics_dict['valid_acc'] = eval_valid
-            metrics_dict['f1_macro_valid'] = f1_macro_valid
-            metrics_dict['train_loss'], metrics_dict['train_acc'] = eval_train
-            metrics_dict['f1_macro_train'] = f1_macro_train
-            metrics_dict['train_and_valid_loss'], metrics_dict['train_and_valid_ acc'] = eval_all
-            metrics_dict['f1_macro_all'] = f1_macro_all
-            self.fit_metrics_dict = metrics_dict
-            
-            return metrics_dict
-        except Exception as ex:
-            print(ex)
-            logging.warning(f'Error in fit function {ex}')
-            
+        split_data = self.__split_data__(valid_mode, split_by_well, valid_wells, train_wells, test_portion, random_state)
+        if split_data is None:
             return None
+        if refit_exist_model:
+            model = self.refitted_model
+            if self.model_info[self.model_name][6] != 'full':
+                model.compile(loss='categorical_crossentropy', optimizer='adam',metrics=['accuracy'])
+            
+            if self.valid_mode is None:
+                if self.verbose:
+                    print('only predict')
+            elif self.df_test is None:
+                if self.verbose:
+                    print('Loaded data contains only wells that used in training model')
+            else:
+                hist = model.fit(self.X_train, self.y_train, batch_size=batch_size, epochs=epochs, 
+                                 validation_data=(self.X_valid, self.y_valid), callbacks=callback)
+                if plot_met:
+                    plot_metrics(hist)
+            self.fit_status = "Old model was refitted"
+            self.refitted_model = model
+        else:
+            if new_model_info[new_model_name][6]=='full':
+                model = keras.models.load_model(new_model_info[new_model_name][0])
+                hist = model.fit(self.X_train, self.y_train, batch_size=batch_size, epochs=epochs, 
+                          validation_data=(self.X_valid, self.y_valid), callbacks=callback)
+                if plot_met:
+                    plot_metrics(hist)
+            else:
+                with open(new_model_info[new_model_name][7]) as json_data:
+                    json_str = json.load(json_data)
+                model = model_from_json(json_str)
+                model.load_weights(new_model_info[new_model_name][0])
+                model.compile(loss='categorical_crossentropy', optimizer='adam',metrics=['accuracy'])
+                hist = model.fit(self.X_train, self.y_train, batch_size=batch_size, epochs=epochs, 
+                             validation_data=(self.X_valid, self.y_valid), callbacks=callback)
+                if plot_met:
+                    plot_metrics(hist)
+            self.new_model = model
+            self.fit_status = "Generated new model"
+        
+        X = np.vstack((self.X_train, self.X_valid))
+        y = np.vstack((self.y_train, self.y_valid))
+            
+        eval_valid, f1_macro_valid = self.__fit_evalute__(model, self.X_valid, self.y_valid)
+        eval_train, f1_macro_train = self.__fit_evalute__(model, self.X_train, self.y_train)
+        eval_all, f1_macro_all = self.__fit_evalute__(model, X, y)
+        
+        metrics_dict=dict()
+        metrics_dict['valid_loss'], metrics_dict['valid_acc'] = eval_valid
+        metrics_dict['f1_macro_valid'] = f1_macro_valid
+        metrics_dict['train_loss'], metrics_dict['train_acc'] = eval_train
+        metrics_dict['f1_macro_train'] = f1_macro_train
+        metrics_dict['train_and_valid_loss'], metrics_dict['train_and_valid_ acc'] = eval_all
+        metrics_dict['f1_macro_all'] = f1_macro_all
+        self.fit_metrics_dict = metrics_dict
+        return metrics_dict  
     
 
-    def predict(self, model='old', wells=None, add_train_data=False):
+    def predict(self, model=None, wells=None, add_train_data=False):
         """
         -------------------------------------------------
         метод прогноза
@@ -618,117 +577,81 @@ class GISInterpDLPredict:
         `add_train_data` (bool): Если True - делает прогноз с учетом обучающей выборки default value = false
         -------------------------------------------------
         return: словарь метрик
-        """
-        try:
-            estimator_info = dict()
-            if model == 'new':
-                if self.fit_status == "Generated new model":
-                    logging.info('Using new_model for predict')
-                    estimator_info['model_path'] = self.new_model_info[0]
-                    estimator_info['scaler'] = self.new_model_info[3]
-                    estimator_info['wells_list'] = self.new_model_info[4]
-                    estimator_info['facies_method'] = self.new_model_info[5]
-                    estimator_info['saving_type'] = self.new_model_info[6]
-                    estimator_info['arch_path'] = self.new_model_info[7]
-                    model = self.new_model
-                else:
-                    return None
-            elif model == 'refit':
-                if self.fit_status == "Old model was refitted":
-                    logging.info('Using refitted_model for predict')
-                    model = self.refitted_model
-                    estimator_info['model_path'] = self.model_info[self.model_name][0]
-                    estimator_info['scaler'] = self.model_info[self.model_name][3]
-                    estimator_info['wells_list'] = self.model_info[self.model_name][4]
-                    estimator_info['facies_method'] = self.model_info[self.model_name][5]
-                    estimator_info['saving_type'] = self.model_info[self.model_name][6]
-                    estimator_info['arch_path'] = self.model_info[self.model_name][7]
-                else:
-                    return None
-            elif model == 'old':
+        """        
+        if model is None:
+            if self.fit_status == "Generated new model":
+                model = self.new_model
+            elif self.fit_status == "Old model was refitted":
+                model = self.refitted_model 
+            else:
                 model = self.__fitted_model
-                logging.info('Using old_model for predict')
-                estimator_info['model_path'] = self.model_info[self.model_name][0]
-                estimator_info['scaler'] = self.model_info[self.model_name][3]
-                estimator_info['wells_list'] = self.model_info[self.model_name][4]
-                estimator_info['facies_method'] = self.model_info[self.model_name][5]
-                estimator_info['saving_type'] = self.model_info[self.model_name][6]
-                estimator_info['arch_path'] = self.model_info[self.model_name][7]
+        well_label = self.raw_data_info['well_label']
+        train_wells = self.df_train[well_label].unique().tolist()
+        test_wells = [] if self.df_test is None else self.df_test[well_label].unique().tolist()
+        
+        if wells is None:
+            wells = train_wells
+        else:
+            if add_train_data:
+                wells = list(set(train_wells + wells))
             else:
-                if self.verbose:
-                    print('Cooshe between: old, new, refit!')
-                return None
-            well_label = self.raw_data_info['well_label']
-            train_wells = self.df_train[well_label].unique().tolist()
-            test_wells = [] if self.df_test is None else self.df_test[well_label].unique().tolist()
-            
-            if wells is None:
-                wells = train_wells
-            else:
-                if add_train_data:
-                    wells = list(set(train_wells + wells))
-                else:
-                    wells = [i for i in wells if i in test_wells] # only test df ~train_df_well
-            if wells == []:
-                return None
-            data_for_pred = self.data[self.data[well_label].isin(wells)].copy()
-            wells = sorted(wells)
-            self.predict_metric_dict= {'PREDICT_VALEUS': {}, 'TRUE_VALUES': {}, 'METRICS': {}}
-            scaler = self.model_info[self.model_name][3]
-            data_for_pred[self.model_info[self.model_name][1]] = scaler.fit_transform(data_for_pred[self.model_info[self.model_name][1]])
-            model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-            logging.info("Model compiled! ")
-            metric_dict = dict()
-            x_list, y_list = [], []
-            for well in wells:
-                df = data_for_pred[data_for_pred[well_label]==well].copy()
-                X, y, dept = split_to_pic_wout_scaling(df, self.model_info[self.model_name][5], self.model_info[self.model_name][2], drop_dept=False)
-                x_list.append(X)
-                y_list.append(y)
-                X, y = reshape_for_cnn([X], [y], self.model_info[self.model_name][5])
-                y_pred = model.predict(X)
-                loss , accr = model.evaluate(X, y, verbose=0)
-                y_pred = [np.argmax(v) for v in y_pred]
-                y_true = [np.argmax(v) for v in y]
-                logging.info(f"Predict for well---{well}")
-                self.predict_metric_dict['PREDICT_VALEUS'][f"{well}_{self.dict_for_date.get(well, 'NaN')}"] = {v:y_pred[k] for k, v in enumerate(dept)}
-                if y_true[0] == -1 and y_true[1]==-1:
-                    self.predict_metric_dict['TRUE_VALUES'][f"{well}_{self.dict_for_date.get(well, 'NaN')}"] = {v:None for k, v in enumerate(dept)}
-                else:
-                    self.predict_metric_dict['TRUE_VALUES'][f"{well}_{self.dict_for_date.get(well, 'NaN')}"] = {v:y_true[k] for k, v in enumerate(dept)}
-                    f1_macro = f1_score(y_true, y_pred, average='macro')
-                    metric_dict[well] = (loss, f1_macro)
-                    self.predict_metric_dict['METRICS'][f"{well}_{self.dict_for_date.get(well, 'NaN')}"] = {'f1_macro': f1_macro, 'loss': loss, 'accuracy': accr}
-                if self.verbose:
-                    print(f'Well {well}')
-                    print(f'X shape is: {X.shape}')
-                    print(f'y shape is: {y.shape}')
-                    print(len(y_true))
-                    print(len(y_pred))
-                    print(y_true[:5])
-                    print(y_pred[:5])
-                    print(f'accuracy {accuracy_score(y_true, y_pred)}')
-                    print(f'X shape for well {well} is: {X.shape}')
-                    print(f'y shape for well {well} is: {len(y_true)}')
-                    print(f'for well {well}: ', classification_report(y_true, y_pred))
-            logging.info('Predicting for all well')
-            X_all, y_all = reshape_for_cnn(x_list, y_list, self.model_info[self.model_name][5])
-            y_all_pred = model.predict(X_all)
-            loss_all, accuracy = model.evaluate(X_all, y_all, verbose=0)
-            y_all_pred = [np.argmax(v) for v in y_all_pred]
-            y_all_true = [np.argmax(v) for v in y_all]
-            if y_all_true[0] != -1:
-                f1_macro_all = f1_score(y_all_true, y_all_pred, average='macro')
-                metric_dict['all_wells'] = (loss_all, f1_macro_all)
-                self.predict_metric_dict['METRICS']['ALL WELLS'] = {'f1_macro': f1_macro_all, 'loss': loss_all, 'accuracy': accuracy}
-            self.predict_metric_dict['ESTIMATOR'] = estimator_info
-            
-            return self.predict_metric_dict
-        except Exception as ex:
-            print(ex)
-            logging.warning(f'Error in predict function {ex}')
-            
-            return None
+                wells = [i for i in wells if i in test_wells] # only test df ~train_df_well
+        
+        data_for_pred = self.data[self.data[well_label].isin(wells)].copy()
+        wells = sorted(wells)
+        self.predict_metric_dict= {'PREDICT_VALEUS': {}, 'TRUE_VALUES': {}, 'METRICS': {}}
+        scaler = self.model_info[self.model_name][3]
+        data_for_pred[self.model_info[self.model_name][1]] = scaler.fit_transform(data_for_pred[self.model_info[self.model_name][1]])
+        model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+        metric_dict = dict()
+        x_list, y_list = [], []
+        for well in wells:
+            df = data_for_pred[data_for_pred[well_label]==well].copy()
+            X, y, dept = split_to_pic_wout_scaling(df, self.model_info[self.model_name][5], self.model_info[self.model_name][2], drop_dept=False)
+            x_list.append(X)
+            y_list.append(y)
+            X, y = reshape_for_cnn([X], [y], self.model_info[self.model_name][5])
+            # self.predict_metric_dict[well] = df.iloc[1:-1]
+            y_pred = model.predict(X)
+            loss , accr = model.evaluate(X, y, verbose=0)
+            y_pred = [np.argmax(v) for v in y_pred]
+            y_true = [np.argmax(v) for v in y]
+            self.predict_metric_dict['PREDICT_VALEUS'][well] = {v:y_pred[k] for k, v in enumerate(dept)}
+            self.predict_metric_dict['TRUE_VALUES'][well] = {v:y_true[k] for k, v in enumerate(dept)}
+            f1_macro = f1_score(y_true, y_pred, average='macro')
+            metric_dict[well] = (loss, f1_macro)
+            self.predict_metric_dict['METRICS'][well] = {'f1_macro': f1_macro, 'loss': loss, 'accuracy': accr}
+            if self.verbose:
+                print(f'Well {well}')
+                print(f'X shape is: {X.shape}')
+                print(f'y shape is: {y.shape}')
+                print(len(y_true))
+                print(len(y_pred))
+                print(y_true[:5])
+                print(y_pred[:5])
+                print(f'accuracy {accuracy_score(y_true, y_pred)}')
+                print(f'X shape for well {well} is: {X.shape}')
+                print(f'y shape for well {well} is: {len(y_true)}')
+                print(f'for well {well}: ', classification_report(y_true, y_pred))
+        
+        X_all, y_all = reshape_for_cnn(x_list, y_list, self.model_info[self.model_name][5])
+        y_all_pred = model.predict(X_all)
+        loss_all, accuracy = model.evaluate(X_all, y_all, verbose=0)
+        y_all_pred = [np.argmax(v) for v in y_all_pred]
+        y_all_true = [np.argmax(v) for v in y_all]
+        f1_macro_all = f1_score(y_all_true, y_all_pred, average='macro')
+        metric_dict['all_wells'] = (loss_all, f1_macro_all)
+        self.predict_metric_dict['METRICS']['ALL WELLS'] = {'f1_macro': f1_macro_all, 'loss': loss_all, 'accuracy': accuracy}
+        estimator_info = {}
+        estimator_info['model_path'] = self.model_info[self.model_name][0]
+        estimator_info['scaler'] = self.model_info[self.model_name][3]
+        estimator_info['wells_list'] = self.model_info[self.model_name][4]
+        estimator_info['facies_method'] = self.model_info[self.model_name][5]
+        estimator_info['saving_type'] = self.model_info[self.model_name][6]
+        estimator_info['arch_path'] = self.model_info[self.model_name][7]
+        self.predict_metric_dict['ESTIMATOR'] = estimator_info
+        
+        return self.predict_metric_dict
 
     
     def export_model(self, name, path_to_save="", save_type='Full model'):
@@ -743,31 +666,25 @@ class GISInterpDLPredict:
         -------------------------------------------------
         return: словарь метрик
         """
-        try:
-            if self.fit_status is None:
-                logging.info('Before export need fit model!')
-                if self.verbose:
-                    print('Fit model first')
-                return None
-            elif self.fit_status == "Old model was refitted":
-                model = self.refitted_model
-                name += "refitted_model."
-            else:
-                model = self.new_model
-                name += "new_model."
-            file_name =os.path.join(path_to_save, f'{name}')
-            if save_type == "weights":
-                model.save_weights(file_name + 'h5')
-                arch = model.to_json()
-                with open(file_name + 'json', 'w') as file:
-                    json.dump(arch, file)
-                logging.info('Model weights and architexture are saved!')
-            else:
-                model.save(file_name + 'hdf5')
-                logging.info('Model saved!')
-            
-            return True
-        except Exception as ex:
-            print(ex)
-            logging.warning(f"Error in export_model function : {ex}")
-            return False
+        if self.fit_status is None:
+            if self.verbose:
+                print('Fit model first')
+            return None
+        elif self.fit_status == "Old model was refitted":
+            model = self.refitted_model
+            name += "refitted_model."
+        else:
+            model = self.new_model
+            name += "new_model."
+        file_name =os.path.join(path_to_save, f'{name}')
+        if save_type == "weights":
+            model.save_weights(file_name + 'h5')
+            arch = model.to_json()
+            with open(file_name + 'json', 'w') as file:
+                json.dump(arch, file)
+        else:
+            model.save(file_name + 'hdf5')
+        
+        return True
+
+
